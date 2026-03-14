@@ -1,8 +1,8 @@
-# Workspace
+# Cloud PHP Lab Workspace
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+pnpm workspace monorepo using TypeScript. A Cloud PHP Lab — a browser-based IDE for students to code PHP, manage databases, preview websites, and download projects.
 
 ## Stack
 
@@ -10,87 +10,89 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **API framework**: Express 5
+- **Frontend**: React + Vite (artifacts/cloud-php-lab) at `/`
+- **API framework**: Express 5 (artifacts/api-server) at `/api`
 - **Database**: PostgreSQL + Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
-- **Build**: esbuild (CJS bundle)
+- **Auth**: JWT (jsonwebtoken) + bcryptjs
+- **PHP runtime**: PHP 8.3 CLI (system installed)
+- **File export**: archiver (ZIP with SQL dump)
+
+## Features
+
+- **Authentication**: JWT-based register/login/logout, bcrypt password hashing
+- **Project management**: Create, rename, delete PHP projects
+- **File explorer**: Tree view with create/rename/delete file and folder operations
+- **Code editor**: Monaco Editor (VS Code) with PHP/HTML/CSS/JS/SQL syntax highlighting + auto-save
+- **PHP execution**: Runs PHP CLI with disabled dangerous functions, memory/time limits
+- **Live preview**: Iframe showing PHP rendered HTML output
+- **Database management**: Per-user PostgreSQL schemas, SQL query runner, table browser
+- **Project export**: ZIP download with all files + SQL dump
 
 ## Structure
 
 ```text
 artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
-│   ├── api-spec/           # OpenAPI spec + Orval codegen config
-│   ├── api-client-react/   # Generated React Query hooks
-│   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+├── artifacts/
+│   ├── api-server/       # Express API server
+│   │   └── src/
+│   │       ├── middleware/auth.ts      # JWT auth middleware
+│   │       ├── services/workspace.ts  # File system / path validation
+│   │       └── routes/
+│   │           ├── auth.ts            # Register/Login/Logout/Me
+│   │           ├── projects.ts        # Projects + File management
+│   │           ├── php.ts             # PHP execution
+│   │           ├── databases.ts       # Database CRUD + SQL query
+│   │           └── export.ts          # ZIP project export
+│   └── cloud-php-lab/    # React + Vite frontend (/)
+│       └── src/
+│           ├── lib/auth.ts            # Token management + fetch interceptor
+│           ├── pages/auth.tsx         # Login/Register page
+│           ├── pages/dashboard.tsx    # Project grid
+│           ├── pages/ide.tsx          # Full IDE workspace
+│           └── components/ide/FileTree.tsx
+├── lib/
+│   ├── api-spec/openapi.yaml  # Full API contract
+│   ├── api-client-react/      # Generated React Query hooks
+│   ├── api-zod/               # Generated Zod schemas
+│   └── db/src/schema/
+│       ├── users.ts           # users table
+│       ├── projects.ts        # projects table
+│       └── databases.ts       # user_databases table
+├── workspaces/                # User workspace files (auto-created)
+└── pnpm-workspace.yaml
 ```
 
-## TypeScript & Composite Projects
+## Security
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references. This means:
+- JWT authentication on all API routes
+- Path traversal prevention (validatePath / validateProjectPath)
+- PHP dangerous function blocking (exec, shell_exec, system, etc.)
+- PHP execution time limit (10s) and memory limit (64MB)
+- Rate limiting (500 req / 15 min per IP)
+- Per-user workspace isolation
 
-- **Always typecheck from the root** — run `pnpm run typecheck` (which runs `tsc --build --emitDeclarationOnly`). This builds the full dependency graph so that cross-package imports resolve correctly. Running `tsc` inside a single package will fail if its dependencies haven't been built yet.
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck; actual JS bundling is handled by esbuild/tsx/vite...etc, not `tsc`.
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array. `tsc --build` uses this to determine build order and skip up-to-date packages.
+## Environment Variables
 
-## Root Scripts
+- `DATABASE_URL` — PostgreSQL connection string (auto-provisioned by Replit)
+- `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` — PostgreSQL components
+- `JWT_SECRET` — JWT signing secret (defaults to dev value, set in production)
+- `WORKSPACES_ROOT` — Where user workspaces are stored (defaults to `cwd/workspaces`)
+- `PORT` — Server port (auto-set by Replit)
 
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
+## Development
 
-## Packages
+```bash
+# Run API server
+pnpm --filter @workspace/api-server run dev
 
-### `artifacts/api-server` (`@workspace/api-server`)
+# Run frontend
+pnpm --filter @workspace/cloud-php-lab run dev
 
-Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
+# Push DB schema changes
+pnpm --filter @workspace/db run push
 
-- Entry: `src/index.ts` — reads `PORT`, starts Express
-- App setup: `src/app.ts` — mounts CORS, JSON/urlencoded parsing, routes at `/api`
-- Routes: `src/routes/index.ts` mounts sub-routers; `src/routes/health.ts` exposes `GET /health` (full path: `/api/health`)
-- Depends on: `@workspace/db`, `@workspace/api-zod`
-- `pnpm --filter @workspace/api-server run dev` — run the dev server
-- `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
-- Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
-
-### `lib/db` (`@workspace/db`)
-
-Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
-
-- `src/index.ts` — creates a `Pool` + Drizzle instance, exports schema
-- `src/schema/index.ts` — barrel re-export of all models
-- `src/schema/<modelname>.ts` — table definitions with `drizzle-zod` insert schemas (no models definitions exist right now)
-- `drizzle.config.ts` — Drizzle Kit config (requires `DATABASE_URL`, automatically provided by Replit)
-- Exports: `.` (pool, db, schema), `./schema` (schema only)
-
-Production migrations are handled by Replit when publishing. In development, we just use `pnpm --filter @workspace/db run push`, and we fallback to `pnpm --filter @workspace/db run push-force`.
-
-### `lib/api-spec` (`@workspace/api-spec`)
-
-Owns the OpenAPI 3.1 spec (`openapi.yaml`) and the Orval config (`orval.config.ts`). Running codegen produces output into two sibling packages:
-
-1. `lib/api-client-react/src/generated/` — React Query hooks + fetch client
-2. `lib/api-zod/src/generated/` — Zod schemas
-
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
-
-### `lib/api-zod` (`@workspace/api-zod`)
-
-Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used by `api-server` for response validation.
-
-### `lib/api-client-react` (`@workspace/api-client-react`)
-
-Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
-
-### `scripts` (`@workspace/scripts`)
-
-Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+# Regenerate API client from OpenAPI spec
+pnpm --filter @workspace/api-spec run codegen
+```

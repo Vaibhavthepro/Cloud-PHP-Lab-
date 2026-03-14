@@ -1,0 +1,340 @@
+You are a senior full-stack engineer. Generate a **complete production-ready Cloud PHP Lab system** that works like an **Online XAMPP environment inside the browser**. The platform will allow students to code PHP projects, manage MySQL databases, preview websites, and download their project with database backup.
+
+The project must be secure, scalable, and suitable for deployment on a cloud server such as Render or a VPS.
+
+---
+
+## SYSTEM GOAL
+
+Create a cloud development environment where students can:
+
+• log in to their account
+• create PHP projects
+• edit files using a browser code editor
+• run PHP code
+• create and manage MySQL databases
+• preview websites live
+• download project files with database export
+
+The system should behave like a simplified **cloud version of XAMPP**.
+
+---
+
+## TECH STACK
+
+Frontend
+React + Vite
+
+Editor
+Monaco Editor (VS Code editor)
+
+Terminal
+xterm.js
+
+Backend
+Node.js + Express
+
+Database
+MySQL
+
+PHP Runtime
+PHP CLI executed securely by backend
+
+Containerization
+Docker (optional but recommended)
+
+---
+
+## DASHBOARD UI
+
+The dashboard layout must include:
+
+LEFT SIDEBAR
+File Explorer
+
+CENTER PANEL
+Monaco code editor
+
+RIGHT PANEL
+Live website preview iframe
+
+BOTTOM PANEL
+Terminal (xterm.js)
+
+TOP BAR
+Project actions
+
+---
+
+## USER AUTHENTICATION
+
+Create authentication system:
+
+Registration
+Login
+Logout
+
+Security requirements:
+
+Use bcrypt password hashing
+Use JWT authentication
+Protect API routes with middleware
+
+Database table:
+
+users
+id
+name
+email
+password_hash
+created_at
+
+---
+
+## WORKSPACE SYSTEM
+
+Each user must receive a private workspace folder.
+
+Example structure:
+
+/workspaces/{user_id}/projects/
+
+Example:
+
+/workspaces/17/projects/blog/index.php
+
+Users must never access files outside their workspace.
+
+Implement path validation to prevent directory traversal attacks.
+
+---
+
+## PROJECT MANAGEMENT
+
+Allow users to:
+
+Create new project
+Rename project
+Delete project
+Open project
+
+Projects table:
+
+projects
+id
+user_id
+project_name
+project_path
+created_at
+
+---
+
+## FILE MANAGEMENT
+
+Features:
+
+Create file
+Create folder
+Rename
+Delete
+Upload files
+Download files
+
+File explorer must update live when changes occur.
+
+---
+
+## CODE EDITOR
+
+Integrate Monaco Editor.
+
+Features:
+
+Syntax highlighting
+PHP
+HTML
+CSS
+JavaScript
+SQL
+
+Autosave files.
+
+Allow multiple tabs.
+
+---
+
+## PHP EXECUTION SYSTEM
+
+When a user opens preview:
+
+Backend executes PHP script.
+
+Example flow:
+
+User opens preview
+
+Backend executes:
+
+php index.php
+
+Output is returned to frontend iframe.
+
+Security:
+
+Disable dangerous PHP functions:
+
+exec
+shell_exec
+system
+passthru
+proc_open
+
+Limit execution time.
+
+Limit memory usage.
+
+---
+
+## DATABASE SYSTEM
+
+Use MySQL server.
+
+Each user receives a separate schema.
+
+Example:
+
+lab_user_17
+
+Database table:
+
+databases
+id
+user_id
+db_name
+created_at
+
+Create database panel where students can:
+
+Run SQL queries
+Create tables
+Insert rows
+View results
+
+---
+
+## PROJECT EXPORT SYSTEM
+
+Students must be able to download their entire project.
+
+When clicking "Download Project":
+
+Step 1
+
+Export database
+
+mysqldump lab_user_17 > database.sql
+
+Step 2
+
+Collect project files
+
+/workspaces/{user_id}/projects/{project_name}
+
+Step 3
+
+Create ZIP
+
+project_export.zip
+project_files/
+database.sql
+
+Return ZIP to user.
+
+---
+
+## TERMINAL
+
+Integrate xterm.js.
+
+Commands must run only inside the user workspace.
+
+Restrict access to system commands.
+
+---
+
+## SECURITY
+
+Implement protections:
+
+JWT authentication
+API rate limiting
+File upload validation
+Path traversal protection
+Workspace isolation
+SQL injection protection
+
+Users must never access other users’ files or databases.
+
+---
+
+## FOLDER STRUCTURE
+
+project-root
+frontend/
+src/
+components/
+pages/
+editor/
+backend/
+routes/
+controllers/
+services/
+middleware/
+workspaces/
+docker/
+scripts/
+README.md
+
+---
+
+## DEPLOYMENT
+
+Provide instructions for deployment on:
+
+Render
+or
+Linux VPS server
+
+Include instructions for:
+
+Installing Node.js
+Installing PHP
+Installing MySQL
+Setting environment variables
+Starting backend server
+Building frontend
+
+---
+
+## PERFORMANCE
+
+System should support at least 100 simultaneous students.
+
+Use:
+
+caching
+websockets
+resource limits for PHP execution
+
+---
+
+## DOCUMENTATION
+
+Generate a full README including:
+
+setup guide
+environment variables
+database schema
+deployment instructions
+security architecture
+project export system

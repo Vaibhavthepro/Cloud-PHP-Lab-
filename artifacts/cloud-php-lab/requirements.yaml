@@ -1,0 +1,15 @@
+packages:
+  "@monaco-editor/react": "Code editor component for the IDE"
+  "framer-motion": "Animations for panels and modals"
+  "date-fns": "Date formatting for project cards"
+  "react-hook-form": "Form state management"
+  "@hookform/resolvers": "Zod integration for forms"
+  "zod": "Schema validation"
+  "lucide-react": "Icons"
+
+images: []
+
+notes:
+  - "The API hooks are imported directly from @workspace/api-client-react"
+  - "Authentication is JWT based; window.fetch is monkeypatched in main/app to auto-inject the Authorization header"
+  - "The IDE layout uses a flexbox grid with a File Tree, Monaco Editor, Preview Panel, and Database Panel"
