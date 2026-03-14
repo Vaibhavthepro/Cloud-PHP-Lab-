@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, pool, Pool } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import { userDatabasesTable, projectsTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
@@ -8,21 +8,9 @@ import { CreateDatabaseBody, RunQueryBody } from "@workspace/api-zod";
 const router = Router();
 router.use(requireAuth);
 
-function getUserDbName(userId: number, dbName: string): string {
+function getSchemaName(userId: number, dbName: string): string {
   const safe = dbName.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase();
   return `lab_user_${userId}_${safe}`;
-}
-
-async function getOrCreateUserPool(dbName: string): Promise<Pool> {
-  return new Pool({
-    host: process.env.PGHOST,
-    port: parseInt(process.env.PGPORT || "5432"),
-    user: process.env.PGUSER,
-    password: process.env.PGPASSWORD,
-    database: dbName,
-    max: 3,
-    connectionTimeoutMillis: 5000,
-  });
 }
 
 router.get("/:projectId/databases", async (req: AuthRequest, res) => {
@@ -71,12 +59,12 @@ router.post("/:projectId/databases", async (req: AuthRequest, res) => {
   }
 
   const { dbName } = parsed.data;
-  const fullDbName = getUserDbName(req.userId!, dbName);
+  const schemaName = getSchemaName(req.userId!, dbName);
 
   const existing = await db
     .select()
     .from(userDatabasesTable)
-    .where(eq(userDatabasesTable.dbName, fullDbName))
+    .where(eq(userDatabasesTable.dbName, schemaName))
     .limit(1);
 
   if (existing.length > 0) {
@@ -86,20 +74,18 @@ router.post("/:projectId/databases", async (req: AuthRequest, res) => {
 
   const client = await pool.connect();
   try {
-    await client.query(`CREATE DATABASE "${fullDbName}"`);
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${schemaName}"`);
   } catch (err: unknown) {
-    const error = err as { code?: string; message?: string };
-    if (error.code !== "42P04") {
-      res.status(500).json({ error: error.message || "Failed to create database" });
-      return;
-    }
+    const error = err as { message?: string };
+    res.status(500).json({ error: error.message || "Failed to create database schema" });
+    return;
   } finally {
     client.release();
   }
 
   const [record] = await db
     .insert(userDatabasesTable)
-    .values({ userId: req.userId!, dbName: fullDbName })
+    .values({ userId: req.userId!, dbName: schemaName })
     .returning();
 
   res.status(201).json({
@@ -129,7 +115,7 @@ router.post("/:projectId/databases/:dbName/query", async (req: AuthRequest, res)
     return;
   }
 
-  const record = await db
+  const [record] = await db
     .select()
     .from(userDatabasesTable)
     .where(
@@ -140,14 +126,15 @@ router.post("/:projectId/databases/:dbName/query", async (req: AuthRequest, res)
     )
     .limit(1);
 
-  if (record.length === 0) {
+  if (!record) {
     res.status(404).json({ error: "Database not found" });
     return;
   }
 
-  const userPool = await getOrCreateUserPool(dbName);
-  const client = await userPool.connect();
+  const client = await pool.connect();
   try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${dbName}"`);
+    await client.query(`SET search_path TO "${dbName}", public`);
     const result = await client.query(parsed.data.sql);
     const columns = result.fields ? result.fields.map((f) => f.name) : [];
     res.json({
@@ -164,8 +151,8 @@ router.post("/:projectId/databases/:dbName/query", async (req: AuthRequest, res)
       error: error.message || "Query failed",
     });
   } finally {
+    await client.query(`SET search_path TO public`);
     client.release();
-    await userPool.end();
   }
 });
 
@@ -183,7 +170,7 @@ router.get("/:projectId/databases/:dbName/tables", async (req: AuthRequest, res)
     return;
   }
 
-  const record = await db
+  const [record] = await db
     .select()
     .from(userDatabasesTable)
     .where(
@@ -194,23 +181,23 @@ router.get("/:projectId/databases/:dbName/tables", async (req: AuthRequest, res)
     )
     .limit(1);
 
-  if (record.length === 0) {
+  if (!record) {
     res.status(404).json({ error: "Database not found" });
     return;
   }
 
-  const userPool = await getOrCreateUserPool(dbName);
-  const client = await userPool.connect();
+  const client = await pool.connect();
   try {
+    await client.query(`CREATE SCHEMA IF NOT EXISTS "${dbName}"`);
     const result = await client.query(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name`,
+      [dbName]
     );
     res.json(result.rows.map((r) => r.table_name));
   } catch {
     res.json([]);
   } finally {
     client.release();
-    await userPool.end();
   }
 });
 
@@ -246,15 +233,12 @@ router.delete("/:projectId/databases/:dbName", async (req: AuthRequest, res) => 
 
   const client = await pool.connect();
   try {
-    await client.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+    await client.query(`DROP SCHEMA IF EXISTS "${dbName}" CASCADE`);
   } finally {
     client.release();
   }
 
-  await db
-    .delete(userDatabasesTable)
-    .where(eq(userDatabasesTable.id, record.id));
-
+  await db.delete(userDatabasesTable).where(eq(userDatabasesTable.id, record.id));
   res.json({ success: true, message: "Database dropped" });
 });
 

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, pool, Pool } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import { projectsTable, userDatabasesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
@@ -42,7 +42,6 @@ router.get("/:projectId/export", async (req: AuthRequest, res) => {
     const archive = archiver("zip", { zlib: { level: 6 } });
     archive.on("error", (err) => {
       console.error("Archive error:", err);
-      res.status(500).end();
     });
 
     archive.pipe(res);
@@ -53,14 +52,14 @@ router.get("/:projectId/export", async (req: AuthRequest, res) => {
 
     for (const dbRecord of databases) {
       try {
-        const dbDump = await dumpDatabase(dbRecord.dbName);
+        const dbDump = await dumpSchema(dbRecord.dbName);
         if (dbDump) {
           const dumpPath = path.join(tmpDir, `${dbRecord.dbName}.sql`);
           fs.writeFileSync(dumpPath, dbDump);
           archive.file(dumpPath, { name: `databases/${dbRecord.dbName}.sql` });
         }
       } catch (err) {
-        console.error(`Failed to dump database ${dbRecord.dbName}:`, err);
+        console.error(`Failed to dump schema ${dbRecord.dbName}:`, err);
       }
     }
 
@@ -69,7 +68,7 @@ Generated: ${new Date().toISOString()}
 
 ## Contents
 - project_files/ - All PHP project files
-- databases/ - SQL database dumps
+- databases/ - SQL database schema dumps
 
 ## Setup Instructions
 1. Copy project_files/ to your web server
@@ -84,35 +83,27 @@ Generated: ${new Date().toISOString()}
   }
 });
 
-async function dumpDatabase(dbName: string): Promise<string> {
-  const userPool = new Pool({
-    host: process.env.PGHOST,
-    port: parseInt(process.env.PGPORT || "5432"),
-    user: process.env.PGUSER,
-    password: process.env.PGPASSWORD,
-    database: dbName,
-    max: 1,
-    connectionTimeoutMillis: 3000,
-  });
-
-  const dbClient = await userPool.connect();
+async function dumpSchema(schemaName: string): Promise<string> {
+  const client = await pool.connect();
   try {
-    const tablesResult = await dbClient.query(
-      `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`
+    const tablesResult = await client.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name`,
+      [schemaName]
     );
 
-    let dump = `-- Database: ${dbName}\n-- Generated: ${new Date().toISOString()}\n\n`;
-    dump += `-- PostgreSQL dump\n\n`;
+    let dump = `-- Schema: ${schemaName}\n-- Generated: ${new Date().toISOString()}\n\n`;
+    dump += `CREATE SCHEMA IF NOT EXISTS "${schemaName}";\n`;
+    dump += `SET search_path TO "${schemaName}";\n\n`;
 
     for (const row of tablesResult.rows) {
       const tableName = row.table_name;
 
-      const colResult = await dbClient.query(
+      const colResult = await client.query(
         `SELECT column_name, data_type, is_nullable, column_default
          FROM information_schema.columns
-         WHERE table_name = $1 AND table_schema = 'public'
+         WHERE table_name = $1 AND table_schema = $2
          ORDER BY ordinal_position`,
-        [tableName]
+        [tableName, schemaName]
       );
 
       dump += `\n-- Table: ${tableName}\n`;
@@ -127,7 +118,9 @@ async function dumpDatabase(dbName: string): Promise<string> {
       dump += cols.join(",\n");
       dump += `\n);\n`;
 
-      const dataResult = await dbClient.query(`SELECT * FROM "${tableName}"`);
+      const dataResult = await client.query(
+        `SELECT * FROM "${schemaName}"."${tableName}"`
+      );
       for (const dataRow of dataResult.rows) {
         const cols = Object.keys(dataRow).map((k) => `"${k}"`).join(", ");
         const vals = Object.values(dataRow)
@@ -143,8 +136,7 @@ async function dumpDatabase(dbName: string): Promise<string> {
 
     return dump;
   } finally {
-    dbClient.release();
-    await userPool.end();
+    client.release();
   }
 }
 
